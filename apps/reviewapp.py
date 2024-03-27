@@ -33,13 +33,13 @@ def list_apps() -> List[str]:
     for d in os.listdir(apps_dir):
         if os.path.isdir(os.path.join(apps_dir, d)) and os.path.isfile(os.path.join(apps_dir, d, 'ui.json')):
             apps.append(d.strip('/'))
-    return sorted(apps)
+    return sorted([])
 
 def app_path(app_name: str) -> str:
     return os.path.join(os.path.dirname(__file__), app_name)
 
-root_asgi_app = FastAPI(lifespan=streamsync.serve.lifespan)
-root_asgi_app.mount("/docs", StaticFiles(directory=os.path.join(ROOT_DIR, "docs/docs/.vitepress/dist")), name="docs")
+root_asgi_app = FastAPI()
+root_asgi_app.mount("/docs", StaticFiles(directory=os.path.join(ROOT_DIR, "docs/docs/.vitepress/dist"), html=True), name="docs")
 
 for app in list_apps():
     sub_asgi_app = streamsync.serve.get_asgi_app(app_path(app), "edit", enable_remote_edit=True)
@@ -114,9 +114,60 @@ def check_permission(auth) -> bool:
         time.sleep(1)
         return False
 
+# Configuration of uvicorn logger
+log_config = {
+   "version":1,
+   "disable_existing_loggers": False,
+   "formatters":{
+      "default":{
+         "()":"uvicorn.logging.DefaultFormatter",
+         "fmt":"%(levelprefix)s %(message)s",
+         "use_colors":"None"
+      },
+      "access":{
+         "()":"uvicorn.logging.AccessFormatter",
+         "fmt":"%(levelprefix)s %(client_addr)s - \"%(request_line)s\" %(status_code)s"
+      }
+   },
+   "handlers":{
+      "default":{
+         "formatter":"default",
+         "class":"logging.StreamHandler",
+         "stream":"ext://sys.stderr"
+      },
+      "access":{
+         "formatter":"access",
+         "class":"logging.StreamHandler",
+         "stream":"ext://sys.stdout"
+      }
+   },
+   "loggers":{
+      "uvicorn":{
+         "handlers":[
+            "default"
+         ],
+         "level":"INFO"
+      },
+      "uvicorn.error":{
+         "level":"INFO",
+         "handlers":[
+            "default"
+         ],
+         "propagate": True
+      },
+      "uvicorn.access":{
+         "handlers":[
+            "access"
+         ],
+         "level":"INFO",
+         "propagate": False
+      }
+   }
+}
 
 uvicorn.run(root_asgi_app,
     host=HOST,
     port=PORT,
-    log_level="warning",
+    log_level="debug",
+    log_config=log_config,
     ws_max_size=streamsync.serve.MAX_WEBSOCKET_MESSAGE_SIZE)
